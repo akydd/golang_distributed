@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 
 	"time"
 
@@ -40,6 +41,7 @@ type Node struct {
 type Config struct {
 	ID       string
 	BindAddr string
+	RaftAddr string
 }
 
 func (c Config) validate() error {
@@ -48,9 +50,12 @@ func (c Config) validate() error {
 	}
 
 	if c.BindAddr == "" {
-		return errors.New("must specify a bind address")
+		return errors.New("must specify an http bind address")
 	}
 
+	if c.RaftAddr == "" {
+		return errors.New("must specify a raft bind address")
+	}
 	return nil
 }
 
@@ -76,7 +81,12 @@ func New(c *Config) (*Node, error) {
 		return nil, err
 	}
 
-	transport, err := raft.NewTCPTransportWithLogger(c.BindAddr, nil, 3, 10*time.Second, logger)
+	raftAddr, err := net.ResolveTCPAddr("tcp", c.RaftAddr)
+	if err != nil {
+		return nil, err
+	}
+
+	transport, err := raft.NewTCPTransportWithLogger(c.BindAddr, raftAddr, 3, 10*time.Second, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -90,4 +100,8 @@ func New(c *Config) (*Node, error) {
 		raft: r,
 		s:    s,
 	}, nil
+}
+
+func (n *Node) Close() error {
+	return nil
 }

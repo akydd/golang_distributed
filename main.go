@@ -16,6 +16,7 @@ var (
 	port     int
 	nodeID   string
 	bindAddr string
+	raftAddr string
 )
 
 func testHandler(w http.ResponseWriter, r *http.Request) {
@@ -25,7 +26,8 @@ func testHandler(w http.ResponseWriter, r *http.Request) {
 func main() {
 	flag.IntVar(&port, "port", 8080, "port for this service")
 	flag.StringVar(&nodeID, "id", "", "unique node identifier")
-	flag.StringVar(&bindAddr, "baddr", "", "bind address for the node")
+	flag.StringVar(&bindAddr, "baddr", "", "HTTP bind address for the node")
+	flag.StringVar(&raftAddr, "raddr", "", "raft bind address for the node")
 	flag.Parse()
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -42,6 +44,7 @@ func main() {
 	_, err := node.New(&node.Config{
 		ID:       nodeID,
 		BindAddr: bindAddr,
+		RaftAddr: raftAddr,
 	})
 	if err != nil {
 		log.Fatal(err)
