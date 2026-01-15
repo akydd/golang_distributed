@@ -40,17 +40,13 @@ type Node struct {
 
 type Config struct {
 	ID       string
-	BindAddr string
 	RaftAddr string
+	JoinAddr string
 }
 
 func (c Config) validate() error {
 	if c.ID == "" {
 		return errors.New("must specify a node ID")
-	}
-
-	if c.BindAddr == "" {
-		return errors.New("must specify an http bind address")
 	}
 
 	if c.RaftAddr == "" {
@@ -59,6 +55,7 @@ func (c Config) validate() error {
 	return nil
 }
 
+// New creates and starts up a node.
 func New(c *Config) (*Node, error) {
 	err := c.validate()
 	if err != nil {
@@ -86,7 +83,7 @@ func New(c *Config) (*Node, error) {
 		return nil, err
 	}
 
-	transport, err := raft.NewTCPTransportWithLogger(c.BindAddr, raftAddr, 3, 10*time.Second, logger)
+	transport, err := raft.NewTCPTransportWithLogger(c.RaftAddr, raftAddr, 3, 10*time.Second, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -96,6 +93,17 @@ func New(c *Config) (*Node, error) {
 		return nil, err
 	}
 
+	if c.JoinAddr == "" {
+		r.BootstrapCluster(raft.Configuration{
+			Servers: []raft.Server{
+				{
+					ID:      raftConfig.LocalID,
+					Address: transport.LocalAddr(),
+				},
+			},
+		})
+	}
+
 	return &Node{
 		raft: r,
 		s:    s,
@@ -103,5 +111,15 @@ func New(c *Config) (*Node, error) {
 }
 
 func (n *Node) Close() error {
+	return nil
+}
+
+func (n *Node) Join(address string, nodeID string) error {
+	// TODO: check that there isn't already a node with this id and address in the cluster.
+	f := n.raft.AddVoter(raft.ServerID(nodeID), raft.ServerAddress(address), 0, 30*time.Second)
+	if f.Error() != nil {
+		return f.Error()
+	}
+
 	return nil
 }

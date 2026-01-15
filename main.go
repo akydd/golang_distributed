@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -13,49 +15,82 @@ import (
 )
 
 var (
-	port     int
 	nodeID   string
 	bindAddr string
 	raftAddr string
+	joinAddr string
 )
 
 func testHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "Hello from %s\n", r.URL.Path)
 }
 
+type Join struct {
+	Address string `json:"address"`
+	NodeID  string `json:"node_id"`
+}
+
 func main() {
-	flag.IntVar(&port, "port", 8080, "port for this service")
 	flag.StringVar(&nodeID, "id", "", "unique node identifier")
 	flag.StringVar(&bindAddr, "baddr", "", "HTTP bind address for the node")
 	flag.StringVar(&raftAddr, "raddr", "", "raft bind address for the node")
+	flag.StringVar(&joinAddr, "jaddr", "", "cluster address to join")
 	flag.Parse()
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", testHandler)
-
-	server := &http.Server{
-		Addr:    fmt.Sprintf(":%d", port),
-		Handler: mux,
-	}
-
-	_, err := node.New(&node.Config{
+	node, err := node.New(&node.Config{
 		ID:       nodeID,
-		BindAddr: bindAddr,
 		RaftAddr: raftAddr,
+		JoinAddr: joinAddr,
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
 
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", testHandler)
+	mux.HandleFunc("POST /join", func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+
+		var j Join
+
+		err := json.NewDecoder(r.Body).Decode(&j)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+		}
+
+		if err = node.Join(j.Address, j.NodeID); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+
+		w.WriteHeader(http.StatusOK)
+	})
+
+	server := &http.Server{
+		Addr:    bindAddr,
+		Handler: mux,
+	}
+
 	go func() {
-		fmt.Printf("Server started on port %d\n", port)
+		fmt.Printf("Server started at address %s\n", bindAddr)
 		if err = server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatal(err)
 		}
 	}()
+
+	if joinAddr != "" {
+		postBody, _ := json.Marshal(map[string]string{
+			"address": joinAddr,
+			"node_id": nodeID,
+		})
+		b := bytes.NewBuffer(postBody)
+		_, err := http.Post("http://"+joinAddr+"/join", "application-type/json", b)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
 
 	<-ctx.Done()
 
